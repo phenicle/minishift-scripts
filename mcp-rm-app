@@ -1,0 +1,79 @@
+#!/bin/bash
+
+function usage()
+{
+	cat <<EOM
+
+ USAGE
+
+  $(basename $0) <app-name>
+
+ where <app-name> is the name used to identify the app.
+
+EOM
+
+	exit 1;
+}
+
+function echoerr() 
+{ 
+	printf "\033[0;31m[%s]\033[0m %s\n" "Error" "$*" >&2; 
+}
+
+function errabort()
+{
+	echoerr "$*"
+	exit 1;
+}
+
+
+
+[[ $# -ne 1 ]] && usage
+
+APPNAME="$1"
+
+oc get "bc/$APPNAME" >/dev/null 2>&1
+[[ $? -eq 0 ]] || errabort "app buildConfig not found: bc/$APPNAME"
+
+# delete route if it exists
+ROUTENAME=$(oc get route |awk '{print $1}'|grep "$APPNAME")
+if [[ -z "$ROUTENAME" ]]
+then
+	 echoerr "route not found for $APPNAME"
+else
+	oc delete route "$APPNAME" >/dev/null 2>&1
+	[[ $? -eq 0 ]] || echoerr "route not found for $APPNAME"
+fi
+
+# delete service if it exists
+oc delete "svc/$APPNAME" >/dev/null 2>&1
+[[ $? -eq 0 ]] || echoerr "service not found: svc/$APPNAME"
+
+# delete pod if it exists
+PODNAME=$(oc get pod|grep "$APPNAME"|grep -vi build |awk '{print $1}')
+if [[ -z "$PODNAME" ]]
+then
+	echoerr "pod not found for $APPNAME"
+else
+	oc delete pod "$PODNAME"
+	[[ $? -eq 0 ]] || echoerr "pod not found for $APPNAME"
+fi
+
+BUILDPOD=$(oc get pod|grep "$APPNAME"|grep -i build|awk '{print $1}')
+if [[ -n "$BUILDPOD" ]]
+then
+	oc delete pod "$BUILDPOD"
+fi
+
+# delete deploy config if it exists
+oc delete "dc/$APPNAME" >/dev/null 2>&1
+[[ $? -eq 0 ]] || echoerr "deployConfig not found: dc/$APPNAME"
+
+# delete build config if it exists
+oc delete "bc/$APPNAME" >/dev/null 2>&1
+[[ $? -eq 0 ]] || echoerr "buildConfig not found: bc/$APPNAME"
+
+# delete image stream if it exists
+oc delete is "$APPNAME"
+[[ $? -eq 0 ]] || echoerr "imageStream not found: $APPNAME"
+

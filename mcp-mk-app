@@ -1,0 +1,115 @@
+#!/bin/bash
+
+function usage()
+{
+	cat <<EOM
+
+ USAGE
+
+  $(basename $0) <app-name> <scm-url>
+
+ where 
+
+   <app-name> is the name used to identify the app, and
+   <scm-url>  is the URL of the application in SCM.
+
+  Note that this script assumes that your project is named 'myproject'.
+
+EOM
+
+	exit 1;
+}
+
+function echoerr() 
+{ 
+	printf "\033[0;31m[%s]\033[0m %s\n" "Error" "$*" >&2; 
+}
+
+function errabort()
+{
+	echoerr "$*"
+	exit 1;
+}
+
+# the appname (label) is required to match the SCM repo name
+function validate_appname()
+{
+	CHECKME="$1"
+	REPOURL="$2"
+
+	if [[ $REPOURL =~ \.git$ ]]
+	then
+		#echo "repourl has .git at the end"
+		REPONAME=$(echo "$REPOURL"|rev|cut -d'/' -f1|rev)
+		REPONAME="${REPONAME%.*}"
+	else
+		REPONAME=$(echo "$REPOURL"|rev|cut -d'/' -f1|rev)
+	fi
+		
+	[[ "$CHECKME" == "$REPONAME" ]] || errabort "AppName/RepoName mismatch: ${CHECKME}/${REPONAME}"
+}
+
+
+
+[[ $# -ne 2 ]] && usage
+
+APPNAME="$1"
+SCMURL="$2"
+
+validate_appname "$APPNAME" "$SCMURL"
+exit 1;
+
+oc get bc "$APPNAME" >/dev/null 2>&1
+[[ $? -eq 0 ]] && errabort "A buildConfig with this name already exists: $APPNAME"
+
+# create the app
+oc new-app "$SCMURL" -l name="$APPNAME" >/dev/null 2>&1
+
+# sleep briefly
+sleep 1s
+
+# tail the buildConfig log
+oc logs -f "bc/$APPNAME"
+
+# sleep briefly
+sleep 1s
+
+# verify that deploy config exists, pod exists, and service exists
+oc get "dc/$APPNAME" >/dev/null 2>&1
+[[ $? -eq 0 ]] || echoerr "deployConfig not found: dc/$APPNAME"
+
+# provide more time for pod(s) to come up
+sleep 2s
+
+# running pod. Don't care about the build or deploy pod
+# whatever is left after ignoring ${APPNAME}-build and ${APPNAME}-deploy is the running one
+PODNAME=$(oc get pod|grep "$APPNAME"|grep -vi deploy|grep -vi build|awk '{print $1}')
+if [[ -z "$PODNAME" ]]
+then
+	echoerr "A running deployment pod was not found for $APPNAME"
+else
+	oc get pod "$PODNAME" >/dev/null 2>&1
+	[[ $? -eq 0 ]] || echoerr "pod not found for $APPNAME ($PODNAME)"
+fi
+
+oc get "svc/$APPNAME" >/dev/null 2>&1
+[[ $? -eq 0 ]] || echoerr "service not found: svc/$APPNAME"
+
+# expost the service
+oc expose "svc/$APPNAME"
+
+# sleep briefly
+sleep 2s
+
+# verify that route exists
+ROUTENAME=$(oc get route|awk '{print $1}'|grep "$APPNAME")
+if [[ -z "$ROUTENAME" ]]
+then
+	echoerr "route not found for $APPNAME"
+else
+	oc get route "$ROUTENAME" >/dev/null 2>&1
+	[[ $? -eq 0 ]] || echoerr "route not found for $APPNAME"
+fi 
+
+# show us the service information
+minishift openshift service $APPNAME -n myproject
