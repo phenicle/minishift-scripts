@@ -57,7 +57,6 @@ APPNAME="$1"
 SCMURL="$2"
 
 validate_appname "$APPNAME" "$SCMURL"
-exit 1;
 
 oc get bc "$APPNAME" >/dev/null 2>&1
 [[ $? -eq 0 ]] && errabort "A buildConfig with this name already exists: $APPNAME"
